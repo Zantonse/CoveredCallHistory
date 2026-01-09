@@ -1,6 +1,12 @@
 function Dashboard({ gainsLosses, annualizedReturn, source }) {
     const { totalRealizedGains, totalRealizedLosses, netPL, stockResults, optionResults } = gainsLosses;
 
+    // Ensure option results have default values for tax breakdown
+    const optionShortTermGains = optionResults.shortTermGains || 0;
+    const optionShortTermLosses = optionResults.shortTermLosses || 0;
+    const optionLongTermGains = optionResults.longTermGains || 0;
+    const optionLongTermLosses = optionResults.longTermLosses || 0;
+
     const formatCurrency = (value) => {
         const formatted = new Intl.NumberFormat('en-US', {
             style: 'currency',
@@ -55,8 +61,38 @@ function Dashboard({ gainsLosses, annualizedReturn, source }) {
 
             </div>
 
-            {/* Breakdown by Type */}
+            {/* Capital Gains Split (Tax View) */}
             <div className="stats-grid mt-lg">
+                {/* Short Term Net */}
+                <div className="stat-card">
+                    <div className="stat-label">Short-Term Net P&L</div>
+                    <div className={`stat-value ${(stockResults.shortTermGains + stockResults.shortTermLosses + optionShortTermGains + optionShortTermLosses) >= 0 ? 'positive' : 'negative'}`}>
+                        {formatCurrency(stockResults.shortTermGains + stockResults.shortTermLosses + optionShortTermGains + optionShortTermLosses)}
+                    </div>
+                    <div style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>
+                        Stocks: <span className={`${(stockResults.shortTermGains + stockResults.shortTermLosses) >= 0 ? 'positive' : 'negative'}`}>{formatCurrency(stockResults.shortTermGains + stockResults.shortTermLosses)}</span><br />
+                        Options: <span className={`${(optionShortTermGains + optionShortTermLosses) >= 0 ? 'positive' : 'negative'}`}>{formatCurrency(optionShortTermGains + optionShortTermLosses)}</span>
+                    </div>
+                </div>
+
+                {/* Long Term Net */}
+                <div className="stat-card">
+                    <div className="stat-label">Long-Term Net P&L</div>
+                    <div className={`stat-value ${(stockResults.longTermGains + stockResults.longTermLosses + optionLongTermGains + optionLongTermLosses) >= 0 ? 'positive' : 'negative'}`}>
+                        {formatCurrency(stockResults.longTermGains + stockResults.longTermLosses + optionLongTermGains + optionLongTermLosses)}
+                    </div>
+                    <div style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>
+                        Stocks: <span className={`${(stockResults.longTermGains + stockResults.longTermLosses) >= 0 ? 'positive' : 'negative'}`}>{formatCurrency(stockResults.longTermGains + stockResults.longTermLosses)}</span><br />
+                        Options: <span className={`${(optionLongTermGains + optionLongTermLosses) >= 0 ? 'positive' : 'negative'}`}>{formatCurrency(optionLongTermGains + optionLongTermLosses)}</span>
+                    </div>
+                </div>
+            </div>
+
+            {/* Breakdown by Type */}
+            <h3 className="mt-lg" style={{ color: 'var(--color-text-muted)', fontSize: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
+                Asset Class Performance
+            </h3>
+            <div className="stats-grid mt-md">
                 {/* Stock Gains */}
                 <div className="stat-card">
                     <div className="stat-label">Stock Gains</div>

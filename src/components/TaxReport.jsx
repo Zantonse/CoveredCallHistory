@@ -12,8 +12,12 @@ function TaxReport({ trades }) {
         const washSaleTrades = [];
 
         trades.forEach(trade => {
-            if (trade.type === 'SELL') { // Only count stock SELLS for Cap Gains lines usually
-                // Term is now populated from gainsCalculator
+            // Include stock SELLS and closed/expired/assigned option trades
+            const isStockSell = trade.type === 'SELL';
+            const isClosedOption = ['BUY_CLOSE', 'SELL_CLOSE', 'EXPIRED', 'ASSIGNED'].includes(trade.type);
+
+            if (isStockSell) {
+                // Stock trades
                 const term = trade.term === 'LONG' ? 'longTerm' : 'shortTerm';
 
                 summary[term].proceeds += (trade.totalProceeds || 0);
@@ -25,6 +29,14 @@ function TaxReport({ trades }) {
                     summary.washSales.count++;
                     washSaleTrades.push(trade);
                 }
+            } else if (isClosedOption && trade.realizedPL !== 0) {
+                // Options trades (treated as short-term)
+                const term = 'shortTerm'; // Options are typically short-term
+
+                summary[term].proceeds += (trade.totalProceeds || 0);
+                summary[term].cost += (trade.totalCost || 0);
+                summary[term].gain += (trade.realizedPL || 0);
+                summary[term].count++;
             }
         });
 

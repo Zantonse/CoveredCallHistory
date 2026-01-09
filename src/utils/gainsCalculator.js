@@ -80,6 +80,14 @@ function calculateStockGains(transactions, strategy = 'FIFO') {
     let totalRealizedGains = 0;
     let totalRealizedLosses = 0;
 
+    // Track split totals
+    const stockResults = {
+        shortTermGains: 0,
+        shortTermLosses: 0,
+        longTermGains: 0,
+        longTermLosses: 0
+    };
+
     // Sort by date
     const sorted = [...transactions].sort((a, b) => a.date - b.date);
 
@@ -111,7 +119,42 @@ function calculateStockGains(transactions, strategy = 'FIFO') {
 
         } else if (transactionType === 'SELL') {
             // Sell using Tax Strategy
-            if (!positions[symbol] || positions[symbol].length === 0) {
+            // Handle Orphaned Sells (Missing Buy History)
+            // If we have no position, assume it's a legacy holding (LONG TERM) with 0 known cost basis (100% gain)
+            // or perhaps $0 cost basis is safer than ignoring it.
+            let positionList = positions[symbol] || [];
+
+            // If totally empty, treat as orphaned lot
+            if (positionList.length === 0) {
+                const totalProceeds = quantity * price - commission - fees;
+                const estimatedCost = 0; // Conservative: 100% gain
+                const realizedPL = totalProceeds - estimatedCost;
+
+                // Add to Long Term Gains
+                if (realizedPL > 0) stockResults.longTermGains += realizedPL;
+                else stockResults.longTermLosses += realizedPL;
+                totalRealizedGains += realizedPL;
+
+                trades.push({
+                    date,
+                    symbol,
+                    type: 'SELL',
+                    quantity,
+                    price,
+                    totalProceeds,
+                    totalCost: estimatedCost,
+                    realizedPL,
+                    term: 'LONG', // Default assumption for missing history
+                    lots: [{
+                        quantity,
+                        date: new Date(0), // Epoch start as proxy for "old"
+                        cost: estimatedCost,
+                        proceeds: totalProceeds,
+                        realizedPL,
+                        term: 'LONG',
+                        note: 'Missing buy history - Assumed Long Term'
+                    }]
+                });
                 continue;
             }
 
@@ -120,7 +163,7 @@ function calculateStockGains(transactions, strategy = 'FIFO') {
             let totalProceeds = quantity * price - commission - fees;
             const soldLots = [];
 
-            while (remainingToSell > 0 && positions[symbol].length > 0) {
+            while (remainingToSell > 0 && positionList.length > 0) {
                 // Select lot based on strategy
                 let lotIndex;
                 if (strategy === 'LIFO') {
@@ -141,7 +184,7 @@ function calculateStockGains(transactions, strategy = 'FIFO') {
                     lotIndex = 0; // First In
                 }
 
-                const lot = positions[symbol][lotIndex];
+                const lot = positionList[lotIndex];
 
                 // Calculate holding period
                 const buyDate = new Date(lot.date);
@@ -174,7 +217,7 @@ function calculateStockGains(transactions, strategy = 'FIFO') {
 
                     remainingToSell -= lot.quantity;
                     // Remove lot
-                    positions[symbol].splice(lotIndex, 1);
+                    positionList.splice(lotIndex, 1);
                 } else {
                     // Partial sell
                     const sellQuantity = remainingToSell;
@@ -199,6 +242,30 @@ function calculateStockGains(transactions, strategy = 'FIFO') {
                 }
             }
 
+            // Handle "Partial Orphan" (Selling more than we have tracked)
+            if (remainingToSell > 0) {
+                const fraction = remainingToSell / quantity;
+                const orphanProceeds = fraction * totalProceeds;
+                const orphanCost = 0; // Assumed zero basis
+                const orphanPL = orphanProceeds - orphanCost;
+
+                // Assume Long Term for the untracked portion
+                if (orphanPL > 0) stockResults.longTermGains += orphanPL;
+                else stockResults.longTermLosses += orphanPL;
+
+                soldLots.push({
+                    quantity: remainingToSell,
+                    date: new Date(0),
+                    cost: orphanCost,
+                    proceeds: orphanProceeds,
+                    realizedPL: orphanPL,
+                    term: 'LONG',
+                    note: 'Missing buy history (Partial)'
+                });
+
+                totalCost += orphanCost;
+            }
+
             const realizedPL = totalProceeds - totalCost;
 
             if (realizedPL > 0) {
@@ -210,6 +277,17 @@ function calculateStockGains(transactions, strategy = 'FIFO') {
             // Determine overall term for the trade
             const terms = new Set(soldLots.map(l => l.term));
             const tradeTerm = terms.size > 1 ? 'MIXED' : (terms.values().next().value || 'SHORT');
+
+            // Accumulate Short/Long Term totals based on LOTS (more accurate than mixed trade level)
+            soldLots.forEach(lot => {
+                if (lot.term === 'LONG') {
+                    if (lot.realizedPL > 0) stockResults.longTermGains += lot.realizedPL;
+                    else stockResults.longTermLosses += lot.realizedPL;
+                } else {
+                    if (lot.realizedPL > 0) stockResults.shortTermGains += lot.realizedPL;
+                    else stockResults.shortTermLosses += lot.realizedPL;
+                }
+            });
 
             trades.push({
                 date,
@@ -264,6 +342,10 @@ function calculateStockGains(transactions, strategy = 'FIFO') {
     return {
         totalRealizedGains,
         totalRealizedLosses,
+        shortTermGains: stockResults.shortTermGains,
+        shortTermLosses: stockResults.shortTermLosses,
+        longTermGains: stockResults.longTermGains,
+        longTermLosses: stockResults.longTermLosses,
         trades,
         openPositions: positions
     };
@@ -306,6 +388,16 @@ function calculateOptionGains(transactions, stockPositions = {}, ownedSymbols = 
     const trades = [];
     let totalRealizedGains = 0;
     let totalRealizedLosses = 0;
+
+    // Track short/long term totals for options
+    // Note: Options are typically treated as SHORT-TERM capital gains/losses
+    // regardless of holding period (US tax treatment)
+    const optionTaxResults = {
+        shortTermGains: 0,
+        shortTermLosses: 0,
+        longTermGains: 0,
+        longTermLosses: 0
+    };
 
     // Strategy-specific tracking
     const strategyResults = {
@@ -480,9 +572,13 @@ function calculateOptionGains(transactions, stockPositions = {}, ownedSymbols = 
                 if (realizedPL > 0) {
                     totalRealizedGains += realizedPL;
                     strategyResults[strategy].premiumRetained += realizedPL;
+                    // Options are treated as short-term capital gains
+                    optionTaxResults.shortTermGains += realizedPL;
                 } else {
                     totalRealizedLosses += realizedPL;
                     strategyResults[strategy].premiumLost += Math.abs(realizedPL);
+                    // Options are treated as short-term capital losses
+                    optionTaxResults.shortTermLosses += realizedPL;
                 }
 
                 const trade = {
@@ -494,6 +590,8 @@ function calculateOptionGains(transactions, stockPositions = {}, ownedSymbols = 
                     strategy,
                     quantity,
                     premium: premiumPaid,
+                    totalProceeds: totalPremiumCollected, // Premium collected when opened
+                    totalCost: premiumPaid, // Premium paid to close
                     realizedPL
                 };
 
@@ -530,9 +628,13 @@ function calculateOptionGains(transactions, stockPositions = {}, ownedSymbols = 
                 if (realizedPL > 0) {
                     totalRealizedGains += realizedPL;
                     strategyResults[strategy].gains += realizedPL;
+                    // Options are treated as short-term capital gains
+                    optionTaxResults.shortTermGains += realizedPL;
                 } else {
                     totalRealizedLosses += realizedPL;
                     strategyResults[strategy].losses += Math.abs(realizedPL);
+                    // Options are treated as short-term capital losses
+                    optionTaxResults.shortTermLosses += realizedPL;
                 }
 
                 const trade = {
@@ -544,6 +646,8 @@ function calculateOptionGains(transactions, stockPositions = {}, ownedSymbols = 
                     strategy,
                     quantity,
                     premium: premiumReceived,
+                    totalProceeds: premiumReceived, // Premium received when closed
+                    totalCost: totalPremiumPaid, // Premium paid when opened
                     realizedPL
                 };
 
@@ -562,6 +666,8 @@ function calculateOptionGains(transactions, stockPositions = {}, ownedSymbols = 
                     const gain = position.quantity * position.premiumPerContract;
                     totalRealizedGains += gain;
                     strategyResults[strategy].premiumRetained += gain;
+                    // Options are treated as short-term capital gains
+                    optionTaxResults.shortTermGains += gain;
 
                     const trade = {
                         date,
@@ -571,6 +677,8 @@ function calculateOptionGains(transactions, stockPositions = {}, ownedSymbols = 
                         optionType: position.optionType,
                         strategy,
                         quantity: position.quantity,
+                        totalProceeds: gain, // Premium collected when opened
+                        totalCost: 0, // No cost to close (expired worthless)
                         realizedPL: gain
                     };
 
@@ -581,6 +689,8 @@ function calculateOptionGains(transactions, stockPositions = {}, ownedSymbols = 
                     const loss = -(position.quantity * position.premiumPerContract);
                     totalRealizedLosses += loss;
                     strategyResults[strategy].losses += Math.abs(loss);
+                    // Options are treated as short-term capital losses
+                    optionTaxResults.shortTermLosses += loss;
 
                     const trade = {
                         date,
@@ -590,6 +700,8 @@ function calculateOptionGains(transactions, stockPositions = {}, ownedSymbols = 
                         optionType: position.optionType,
                         strategy,
                         quantity: position.quantity,
+                        totalProceeds: 0, // No proceeds (expired worthless)
+                        totalCost: Math.abs(loss), // Premium paid when opened
                         realizedPL: loss
                     };
 
@@ -606,6 +718,8 @@ function calculateOptionGains(transactions, stockPositions = {}, ownedSymbols = 
                 const gain = position.quantity * position.premiumPerContract;
                 totalRealizedGains += gain;
                 strategyResults[strategy].premiumRetained += gain;
+                // Options are treated as short-term capital gains
+                optionTaxResults.shortTermGains += gain;
 
                 const trade = {
                     date,
@@ -615,6 +729,8 @@ function calculateOptionGains(transactions, stockPositions = {}, ownedSymbols = 
                     optionType: position.optionType,
                     strategy,
                     quantity: position.quantity,
+                    totalProceeds: gain, // Premium collected when opened
+                    totalCost: 0, // No cost to close (assigned)
                     realizedPL: gain
                 };
 
@@ -661,6 +777,10 @@ function calculateOptionGains(transactions, stockPositions = {}, ownedSymbols = 
     return {
         totalRealizedGains,
         totalRealizedLosses,
+        shortTermGains: optionTaxResults.shortTermGains,
+        shortTermLosses: optionTaxResults.shortTermLosses,
+        longTermGains: optionTaxResults.longTermGains,
+        longTermLosses: optionTaxResults.longTermLosses,
         trades,
         openPositions: optionPositions,
         strategySummary,
