@@ -26,6 +26,7 @@ function OptionsBreakdown({ strategyData, winRate }) {
             description: 'Puts sold with cash to cover',
             color: '#6366f1'
         },
+
         {
             key: 'longCalls',
             name: 'Long Calls',
@@ -72,9 +73,7 @@ function OptionsBreakdown({ strategyData, winRate }) {
                 marginBottom: 'var(--spacing-md)',
                 textAlign: 'center'
             }}>
-                <div style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', marginBottom: '0.25rem' }}>
-                    Total Premium Collected (Covered Calls + CSPs)
-                </div>
+                Total Premium Collected (Covered Calls + CSPs)
                 <div style={{ fontSize: '2rem', fontWeight: '700', color: 'var(--color-success)' }}>
                     {formatCurrency(totalPremiumCollected)}
                 </div>

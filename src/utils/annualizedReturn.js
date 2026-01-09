@@ -30,35 +30,88 @@ function buildCashFlows(transactions, currentValue) {
     // Sort transactions by date
     const sorted = [...transactions].sort((a, b) => a.date - b.date);
 
-    for (const txn of sorted) {
-        const { date, transactionType, amount } = txn;
+    if (sorted.length === 0) return [];
 
-        if (transactionType === 'BUY' || transactionType === 'OPTION_BUY_OPEN') {
-            // Money out (negative)
-            cashFlows.push({
-                date,
-                amount: -Math.abs(amount)
-            });
-        } else if (transactionType === 'SELL' || transactionType === 'OPTION_SELL_OPEN') {
-            // Money in (positive)
-            cashFlows.push({
-                date,
-                amount: Math.abs(amount)
-            });
-        } else if (transactionType === 'DIVIDEND') {
-            // Dividend received (positive)
-            cashFlows.push({
-                date,
-                amount: Math.abs(amount)
-            });
+    // 1. Determine Starting Value (Initial Investment)
+    // We try to infer the starting balance from the first transaction
+    // Start Balance = First Txn Cash Balance - First Txn Amount (reversing the effect)
+    const firstTxn = sorted[0];
+    let startBalance = 0;
+
+    // Try to get balance from raw data
+    const rawBalance = parseFloat(firstTxn.rawData['Cash Balance'] || firstTxn.rawData['Cash Balance ($)']);
+    if (!isNaN(rawBalance)) {
+        // If it's a "Cash" account, the Amount was added/subtracted to get this balance.
+        // We reverse it to get "Starting Cash" before this trade.
+        startBalance = rawBalance - (firstTxn.amount || 0);
+    }
+
+    // Safety: If we can't find a balance, looking at return is meaningless without a denominator.
+    // We'll use a small epsilon or the first transaction amount to prevent division by zero, 
+    // but ideally this should be the full portfolio value.
+    if (startBalance <= 0) startBalance = 1;
+
+    // Add Initial Investment (Negative Flow)
+    cashFlows.push({
+        date: firstTxn.date,
+        amount: -Math.abs(startBalance)
+    });
+
+    // 2. Add External Cash Flows (Deposits/Withdrawals)
+    // We ignore internal "Buy/Sell" of stocks/options as those are just changing asset form (Cash <-> Stock)
+    // We ONLY care about money entering/leaving the account entirely.
+    for (const txn of sorted) {
+        const desc = (txn.description || '').toLowerCase();
+        const action = (txn.action || '').toLowerCase();
+
+        // Detect Transfers
+        if (action.includes('funds transfer') ||
+            action.includes('deposit') ||
+            action.includes('withdrawal') ||
+            action.includes('check paid') ||
+            desc.includes('transfer')) {
+
+            // Deposit = Money In to Account = Investment (Negative for XIRR)
+            // Withdrawal = Money Out of Account = Return (Positive for XIRR)
+
+            // Note: In Fidelity CSV, "Amount" is typically Positive for Deposits, Negative for Withdrawals?
+            // Let's verify standard behavior:
+            // "Electronic Funds Transfer Received" -> Amount is +$14,000.  This is an Investment. -> XIRR expects -14000.
+
+            if (txn.amount > 0) {
+                // Deposit
+                cashFlows.push({
+                    date: txn.date,
+                    amount: -txn.amount // Investment is negative
+                });
+            } else {
+                // Withdrawal
+                cashFlows.push({
+                    date: txn.date,
+                    amount: Math.abs(txn.amount) // Return is positive
+                });
+            }
         }
     }
 
-    // Add current value as final cash flow (if we were to liquidate today)
-    if (currentValue > 0) {
+    // 3. Determine Final Value
+    let finalValue = currentValue;
+    if (finalValue === 0) {
+        // Find latest cash balance
+        for (let i = sorted.length - 1; i >= 0; i--) {
+            const balance = parseFloat(sorted[i].rawData['Cash Balance'] || sorted[i].rawData['Cash Balance ($)']);
+            if (!isNaN(balance) && balance > 0) {
+                finalValue = balance;
+                break;
+            }
+        }
+    }
+
+    // Add Final Value (Positive Flow)
+    if (finalValue > 0) {
         cashFlows.push({
-            date: new Date(),
-            amount: currentValue
+            date: new Date(), // Today
+            amount: finalValue
         });
     }
 

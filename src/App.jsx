@@ -8,21 +8,65 @@ import { parseCSV } from './utils/csvParser';
 import { calculateGainsLosses } from './utils/gainsCalculator';
 import { calculateXIRR } from './utils/annualizedReturn';
 
-import TaxReport from './components/TaxReport';
-// ... imports
-
 function App() {
-    // ... existing state
+    const [results, setResults] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
     const [taxStrategy, setTaxStrategy] = useState('FIFO');
     const [activeTab, setActiveTab] = useState('overview'); // 'overview' or 'tax'
 
-    // ... handlers
+    const handleFileUpload = async (file) => {
+        setLoading(true);
+        setError(null);
+
+        try {
+            // Parse CSV
+            const { transactions, source } = await parseCSV(file);
+
+            // Calculate gains/losses
+            const gainsLosses = calculateGainsLosses(transactions, taxStrategy);
+
+            // Calculate XIRR
+            const annualizedReturn = calculateXIRR(transactions, 0);
+
+            setResults({
+                transactions,
+                source,
+                gainsLosses,
+                annualizedReturn
+            });
+        } catch (err) {
+            setError(err.message || 'Failed to process CSV file');
+            console.error(err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleStrategyChange = (newStrategy) => {
+        setTaxStrategy(newStrategy);
+        if (results) {
+            const newGains = calculateGainsLosses(results.transactions, newStrategy);
+            setResults(prev => ({ ...prev, gainsLosses: newGains }));
+        }
+    };
 
     return (
         <div className="container">
-            {/* Header ... */}
+            <header className="text-center mb-lg">
+                <h1>FidelityTracker</h1>
+                <p style={{ color: 'var(--color-text-muted)', fontSize: '1.125rem' }}>
+                    Investment Gains & Losses Calculator
+                </p>
+            </header>
 
-            {!results && (/* FileUpload */)}
+            {!results && (
+                <FileUpload
+                    onFileUpload={handleFileUpload}
+                    loading={loading}
+                    error={error}
+                />
+            )}
 
             {results && (
                 <div className="fade-in">

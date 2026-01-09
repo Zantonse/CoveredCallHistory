@@ -71,6 +71,7 @@ function normalizeFidelity(data) {
         const fees = parseFloat(row['Fees ($)']) || 0;
         const amount = parseFloat(row['Amount ($)']) || 0;
         const date = parseDate(row['Run Date']);
+        const accountType = row['Type'] || '';
 
         // Detect if this is an option transaction
         const isOption = symbol.startsWith('-') || action.includes('CALL') || action.includes('PUT');

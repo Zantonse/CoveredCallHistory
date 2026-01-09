@@ -52,12 +52,7 @@ function Dashboard({ gainsLosses, annualizedReturn, source }) {
                 </div>
 
                 {/* Annualized Return */}
-                <div className="stat-card">
-                    <div className="stat-label">Annualized Return (XIRR)</div>
-                    <div className={`stat-value ${annualizedReturn >= 0 ? 'positive' : 'negative'}`}>
-                        {formatPercent(annualizedReturn)}
-                    </div>
-                </div>
+
             </div>
 
             {/* Breakdown by Type */}

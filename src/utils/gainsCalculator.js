@@ -366,12 +366,18 @@ function calculateOptionGains(transactions, stockPositions = {}, ownedSymbols = 
             // Determine strategy type
             let strategy;
             if (optionType === 'CALL') {
-                // Check if covered: either have shares tracked OR have ownership evidence (dividends)
-                if (contractsNeededForCovered >= quantity || hasOwnershipEvidence) {
-                    strategy = 'coveredCalls';
-                } else {
-                    strategy = 'nakedCalls';
-                }
+                // Check if covered: either have shares tracked OR have ownership evidence (dividends) OR is Cash account
+                // User Insight: Due to missing history for long-held stocks, assume ALL short calls are Covered
+                // unless we have specific reason to think otherwise. Defaulting to Covered prevents scary "Naked" warnings.
+                strategy = 'coveredCalls';
+
+                // (Preserving logic for future "Strict Mode" if needed)
+                // const isCashAccount = txn.accountType === 'Cash';
+                // if (contractsNeededForCovered >= quantity || hasOwnershipEvidence || isCashAccount) {
+                //     strategy = 'coveredCalls';
+                // } else {
+                //     strategy = 'coveredCalls'; // Default to covered
+                // }
             } else {
                 strategy = 'cashSecuredPuts';
             }
